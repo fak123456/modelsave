@@ -63,6 +63,7 @@ class ProgressFile:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--check-auth', action='store_true')
+    parser.add_argument('--parts', nargs='+', help='Upload only these declared assets; keep the release draft')
     args = parser.parse_args()
     session = requests.Session()
     session.headers.update({'Authorization': 'Bearer ' + credential(),
@@ -82,6 +83,8 @@ def main():
                 message = response.json().get('message', 'API request rejected')
             except ValueError:
                 message = 'API request rejected'
+            if response.status_code in (502, 503, 504):
+                raise requests.HTTPError(f'Temporary GitHub API HTTP {response.status_code}')
             raise RuntimeError(f'GitHub API HTTP {response.status_code}: {message}')
         return response.json() if response.content else None
 
@@ -103,14 +106,22 @@ def main():
                  'licenses/FLUX_LICENSE.md', 'licenses/FLUX_NOTICE.txt'):
         path = ROOT / name
         assets.append((path, digest(path), path.stat().st_size))
+    if args.parts:
+        selected = set(args.parts)
+        assets = [row for row in assets if row[0].name in selected]
+        if {row[0].name for row in assets} != selected:
+            raise RuntimeError('Selected asset is not declared by this backup')
     print('Verifying local upload files...', flush=True)
     for path, expected, size in assets:
         if path.stat().st_size != size or digest(path) != expected:
             raise RuntimeError('Local upload file verification failed: ' + path.name)
-    subprocess.run(['git', '-c', 'credential.username=fak123456', 'push', '-u', 'origin', 'main'], cwd=ROOT, check=True)
+    if not args.parts:
+        subprocess.run(['git', '-c', 'credential.username=fak123456', 'push', '-u', 'origin', 'main'], cwd=ROOT, check=True)
     commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     release = api('GET', f'/repos/{REPO}/releases/tags/{tag}', allow_missing=True)
     if release is None:
+        if args.parts:
+            raise RuntimeError('The main publisher must create the draft release first')
         release = api('POST', f'/repos/{REPO}/releases', json={
             'tag_name': tag, 'target_commitish': commit, 'draft': True,
             'name': 'V16 交接包 + FLUX3 蒸馏模型（2026-10-19）',
@@ -159,6 +170,9 @@ def main():
     for path, sha, size in assets:
         if not verified(remote.get(path.name, {}), size, sha):
             raise RuntimeError('Final remote verification failed: ' + path.name)
+    if args.parts:
+        print('Selected assets verified; release publication is left to the main publisher.', flush=True)
+        return
     if release.get('draft'):
         release = api('PATCH', f'/repos/{REPO}/releases/{release["id"]}', json={'draft': False})
     receipt = {'repository': REPO, 'commit': commit, 'release_url': release['html_url'],
