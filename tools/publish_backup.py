@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import json
 import os
+import socket
 import subprocess
 import time
 from pathlib import Path
@@ -10,12 +11,28 @@ from urllib.parse import urlparse
 
 import requests
 import truststore
+from requests.adapters import HTTPAdapter
+from urllib3.connection import HTTPConnection
 
 truststore.inject_into_ssl()
 ROOT = Path(__file__).resolve().parents[1]
 API = 'https://api.github.com'
 REPO = 'fak123456/modelsave'
 BLOCK = 8 * 1024 ** 2
+
+
+class PhysicalUploadAdapter(HTTPAdapter):
+    def __init__(self, interface, source_ip):
+        self.interface = interface
+        self.source_ip = source_ip
+        super().__init__()
+
+    def init_poolmanager(self, connections, maxsize, block=False, **kwargs):
+        # Windows IP_UNICAST_IF applies only to these upload sockets, not system routes.
+        kwargs['socket_options'] = HTTPConnection.default_socket_options + [
+            (socket.IPPROTO_IP, 31, socket.htonl(self.interface))]
+        kwargs['source_address'] = (self.source_ip, 0)
+        return super().init_poolmanager(connections, maxsize, block=block, **kwargs)
 
 
 def digest(path):
@@ -64,8 +81,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--check-auth', action='store_true')
     parser.add_argument('--parts', nargs='+', help='Upload only these declared assets; keep the release draft')
+    parser.add_argument('--upload-interface', type=int, help='Windows physical IPv4 interface index')
+    parser.add_argument('--upload-source-ip', help='IPv4 address belonging to that interface')
     args = parser.parse_args()
+    if bool(args.upload_interface) != bool(args.upload_source_ip):
+        parser.error('--upload-interface and --upload-source-ip must be used together')
     session = requests.Session()
+    if args.upload_interface:
+        if os.name != 'nt':
+            parser.error('Physical interface selection is implemented for Windows only')
+        session.trust_env = False
+        session.mount('https://uploads.github.com/', PhysicalUploadAdapter(args.upload_interface, args.upload_source_ip))
+        print(f'Large uploads bound to physical interface {args.upload_interface}.', flush=True)
     session.headers.update({'Authorization': 'Bearer ' + credential(),
                             'Accept': 'application/vnd.github+json',
                             'X-GitHub-Api-Version': '2022-11-28',
