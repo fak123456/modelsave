@@ -1,0 +1,8 @@
+This FLUX Model is licensed by Black Forest Labs Inc. under the FLUX Kommunity License. Copyright Black Forest Labs Inc. IN NO EVENT SHALL BLACK FOREST LABS INC. BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH USE OF THIS MODEL.
+
+Model: flux3_image_klein_sd_int8_convrot.safetensors
+Official source: https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy
+Revision: 5c9b714851dc072b04a23ef6d2d36421f5ccb3a0
+SHA256: 847d8933548afd93df4af2cac2498e70891bf28d9dae06d695f536992e168fe2
+
+This is an unchanged copy of the official model file, not a modified or newly quantized derivative. Any rights to use the FLUX Model are granted directly by Black Forest Labs Inc. under the accompanying FLUX Kommunity License, not by the owner of this backup repository.

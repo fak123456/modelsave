@@ -1,0 +1,92 @@
+环境未打包。本文件用于下一位Codex安装与适配，不是承诺所有GPU可原样运行。
+
+一、先检查机器和目标目录
+======================
+确认Windows x64/Linux、NVIDIA GPU型号/显存/计算能力、驱动、系统内存、磁盘空间及代理。
+原程序以Windows x64为目标。Linux适配还涉及ctypes进程/端口识别、后台启动和路径，不只是换Python。
+新电脑建议选择独立C盘项目目录；不要覆盖已运行项目。
+权重合计字节数见models/model_downloads.json，另预留环境、缓存、下载临时文件和结果空间。
+下载仍需访问PyTorch、Python、GitHub及Hugging Face；分别验证连接，不关闭TLS校验，不把退出码1一律当网络问题。
+系统NVIDIA驱动单独安装，PyTorch自带CUDA运行时不等于显卡驱动。不必为运行本项目先装完整CUDA开发工具包，除非后续需要编译扩展。
+
+二、Python与依赖（已验证版本优先）
+================================
+Python Windows x64 3.12.10：
+https://www.python.org/downloads/release/python-31210/
+https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe
+安装后在新项目创建独立venv，不复用旧电脑venv绝对路径。
+
+PowerShell示例（先把路径替换成最终新项目路径）：
+  $project = 'C:\QwenSceneTestsV16_Adaptation'
+  New-Item -ItemType Directory -Force -Path "$project\runtime\v16_cache\temp","$project\logs" | Out-Null
+  $env:TEMP = "$project\runtime\v16_cache\temp"
+  $env:TMP = $env:TEMP
+  $env:PIP_CACHE_DIR = "$project\runtime\v16_cache\pip"
+  $env:PYTHONUTF8 = '1'
+  py -3.12 -m venv "$project\runtime\v16_comfy\.venv"
+  $python = "$project\runtime\v16_comfy\.venv\Scripts\python.exe"
+  & $python -u -m pip --log "$project\logs\pip-torch.log" install --index-url https://download.pytorch.org/whl/cu128 torch==2.10.0 torchvision==0.25.0 torchaudio==2.10.0 2>&1 | Tee-Object "$project\logs\pip-torch-console.log"
+  if ($LASTEXITCODE -ne 0) { throw 'Read pip-torch logs before proceeding' }
+
+ComfyUI固定源码：
+https://github.com/Comfy-Org/ComfyUI/tree/5a665890ded5020c282f63c4ea2dd9e083e025ff
+源码ZIP和SHA见installation/source_metadata/backend-manifest.json。
+同版源码ZIP已在project/*/backend/source_bundle保留，可校验后解压复用，避免重复下载源码。
+将源码放入新项目runtime/v16_comfy/ComfyUI；以其requirements.txt安装其余依赖，始终保留pip实时输出和完整日志。
+installation/requirements_exact.txt 和 installed_packages.json 记录当前机器完整已安装版本，供版本对照。
+不要在没有cu128源/版本核对的情况下直接全量pip install requirements_exact.txt；里面包括+cu128版本和本地版本形式。
+先装固定torch三件套，再按Comfy requirements及精确清单补齐；不应静默换成CPU版torch。
+使用 python -m pip，不复用旧电脑pip.exe启动器。
+如需MSVC运行时，使用Microsoft官方支持的VC++ x64 Redistributable；缺DLL时依据具体错误补齐。
+
+三、27B运行程序（不含模型）
+=========================
+原版llama.cpp build b11429，commit d81235049，0.6.0-dev，Windows x64 CUDA12.4。
+确切两个ZIP的官方URL、字节数和SHA见installation/source_metadata/27b-runtime-source.json。
+下载llama二进制ZIP和配套cudart ZIP，校验后解压到同一新项目runtime/v16_planner27b。
+解压后先执行llama-server.exe --version；与原始逐文件校验清单核对。
+当前27B配置：ctx12288、parallel1、gpu_layers99、fit off、flash-attn on、image_max_tokens512、reasoning off、jinja；服务端口1255。
+扩写请求：temperature0.25、top_p0.8、top_k20、max_tokens4600、按场景固定seed、cache_prompt false、关闭思考。
+上游8图选图使用max_tokens3200，不要与当前一图扩写混淆。
+
+四、只下载当前五个必要权重
+========================
+models/model_downloads.json已列出官方固定提交URL、SHA256、字节数及建议相对路径。
+三份FLUX文件：蒸馏版UNet、4B文本编码器、flux2 VAE。
+两份27B文件：Q4_K_M GGUF及BF16视觉投影。
+不需要Base、FLUX2基准或9B扩写权重。
+需授权仓库用自己的已授权账户走官方流程，令牌本机隐藏输入，不能写日志/参数/交接文档。
+已有文件先核验再复用；按原下载器断点规则续传；不删除旧权重重下。
+本包记录的是原机固定清单来源；若某URL在未来不可用，先核实仓库及授权，不擅自换同名不同模型。
+
+五、必须处理的旧机器绑定
+======================
+1. expand_run.py：PROJECT由代码目录父目录决定；SOURCES是两个固定历史批次。迁移其素材或改为读取已冻结base_prompts/baseline。
+2. planner27b.py：SOURCE_PROJECT、MODEL_MANIFEST、RUNTIME_MANIFEST仍指旧D盘；prepare_runtime还读取scene_compare_v16_flux/backend/backend-state.json。新机应配置化模型路径和运行库，重新计算验证信息。
+3. backend-state.json、verified-runtime.json及extra_model_paths.yaml包含旧绝对路径、mtime与ready=true，全部只作历史证据，不是新机器已准备完成。
+4. backend/setup_backend.py的默认完整manifest会检查或安装全部旧对照模型。当前路线应缩小到五份必要权重；相应required_nodes/设置必须一致调整，不能仅忽略缺失异常。
+5. compare.launch也要求原scene_compare_v16_flux目录存在。快照已保留该目录，但不要因此误启动原240张默认入口。
+6. 所有*.cmd、launch.ps1、缓存变量、服务工作目录、模型路径均需指向新项目；14入口不是通用无路径启动器。
+7. last-run、batch、worker、launcher、_services日志是旧运行存档。不要在新机器resume旧批次；创建新批次、独立日志和新的进程身份。
+8. 修改后的源码/config需要重新计算package_digest。禁止为了绕过验证把旧批次digest改成新源码；保留旧实验、另开新批次。
+
+六、显卡适配应验证什么
+====================
+24GB/32GB：先保留现有模型精度和采样设置，实测加载峰值、正式吞吐和稳定性。
+16GB/12GB：27B权重文件本身约19GB，另有投影与KV缓存，无法沿用全GPU加载；需要明确CPU卸载策略、RAM与上下文预算，记录改变和实测成本。
+FLUX单参考/四格分别实测显存，不能把四格的无参考耗时当单格吞吐。
+50系列：验证torch编译架构和实际CUDA运算；原llama CUDA12.4包不应直接视作Blackwell已兼容。必要时用支持目标GPU的CUDA构建，并重新固定下载URL、版本与SHA。
+先保持INT8；若改FP8/FP4、量化、注意力实现、torch或步数，必须标记为新的配置/实验，不宣称同条件性能提升。
+单路分阶段释放27B与FLUX，不同时把全部模型装入显存。
+ResourceGuard原阈值包括：可用RAM<2GiB持续15秒、剩余显存<1536MiB持续10秒、温度>=83°C持续15秒或>=85°C立即停。小显存GPU应按新卸载策略验证并有依据调整，不能笼统关掉保护，也不能用不适用的固定阈值不断误拦截。
+报告HTML锁定/预览失败不应影响生成；提交日志/结果文件失败或POST状态不明不能忽略。
+
+七、适配验证与生产入口
+====================
+先运行：新venv的python -B probe_environment.py。
+再运行：新venv的python -B run_current_tests.py；输出应说明34项当前相关测试。全旧测试集有针对旧文本归一化策略的断言，不代表本轮原样回答模式应恢复旧过滤。
+这些测试不触发GPU生图，部分临时目录沿源码或C项目创建；迁移时检查写入位置。
+然后真实试跑至少一张单格、一张四格和一条27B扩写，检查：单格一个参考、四格零参考、参数、560白圆、商品一次合成、1024原生/1600导出。
+再验证停止/安全续跑、无重复POST、原文件/文本hash、资源日志5秒与进度10秒、最终HTML与ZIP。
+只做运行/完整性验证，不让代理审核润色模型扩写答案。新硬件视觉差异留给用户比较。
+完成以上后再按新会话授权开正式批次；程序后台自动运行，不需要Codex长期监视。
