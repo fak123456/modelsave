@@ -30,7 +30,8 @@ class PhysicalUploadAdapter(HTTPAdapter):
     def init_poolmanager(self, connections, maxsize, block=False, **kwargs):
         # Windows IP_UNICAST_IF applies only to these upload sockets, not system routes.
         kwargs['socket_options'] = HTTPConnection.default_socket_options + [
-            (socket.IPPROTO_IP, 31, socket.htonl(self.interface))]
+            (socket.IPPROTO_IP, 31, socket.htonl(self.interface)),
+            (socket.SOL_SOCKET, socket.SO_SNDBUF, 4 * 1024 ** 2)]
         kwargs['source_address'] = (self.source_ip, 0)
         return super().init_poolmanager(connections, maxsize, block=block, **kwargs)
 
