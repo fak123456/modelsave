@@ -120,6 +120,11 @@ def main():
     commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     release = api('GET', f'/repos/{REPO}/releases/tags/{tag}', allow_missing=True)
     if release is None:
+        candidates = [r for r in api('GET', f'/repos/{REPO}/releases?per_page=100') if r['tag_name'] == tag]
+        if len(candidates) > 1:
+            raise RuntimeError('More than one release uses this backup tag; refusing to create another')
+        release = candidates[0] if candidates else None
+    if release is None:
         if args.parts:
             raise RuntimeError('The main publisher must create the draft release first')
         release = api('POST', f'/repos/{REPO}/releases', json={
